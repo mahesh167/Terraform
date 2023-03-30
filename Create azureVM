@@ -1,0 +1,89 @@
+terraform {
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "=2.46.0"
+    }
+  }
+}
+
+#https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/guides/service_principal_client_secret
+provider "azurerm" {
+  features {}
+#   client_id       = "00000000-0000-0000-0000-000000000000"
+#   client_secret   = "20000000-0000-0000-0000-000000000000"
+#   tenant_id       = "10000000-0000-0000-0000-000000000000"
+  subscription_id = "20000000-0000-0000-0000-000000000000"
+}
+
+
+resource "azurerm_resource_group" "myrg" {
+  name     = "NextOpsVideos"
+  location = "eastus"
+}
+
+resource "azurerm_virtual_network" "myvnet" {
+  name                = "myvnet"
+  address_space       = ["10.0.0.0/16"]
+  location            = azurerm_resource_group.myrg.location
+  resource_group_name = azurerm_resource_group.myrg.name
+}
+
+resource "azurerm_subnet" "mysubnet" {
+  name                 = "mysubnet"
+  address_prefixes     = ["10.0.0.0/24"]
+  virtual_network_name = azurerm_virtual_network.myvnet.id
+  resource_group_name  = azurerm_resource_group.myrg.name
+}
+
+resource "azurerm_network_interface" "mynic" {
+  count               = 3
+  name                = "my-nic-${count.index}"
+  location            = azurerm_resource_group.myrg.location
+  resource_group_name = azurerm_resource_group.myrg.name
+
+  ip_configuration {
+    name                          = "my-ip-config${count.index}"
+    subnet_id                     = azurerm_subnet.mysubnet.id
+    private_ip_address_allocation = "Dynamic"
+  }
+}
+
+resource "azurerm_virtual_machine" "main" {
+  count = 3
+  name                  = "my-vm${count.index}"
+  location              = azurerm_resource_group.myrg.location
+  resource_group_name   = azurerm_resource_group.myrg.location
+  network_interface_ids = [azurerm_network_interface.mynic[count.index]]
+  vm_size               = "Standard_DS1_v2"
+
+  # Uncomment this line to delete the OS disk automatically when deleting the VM
+  # delete_os_disk_on_termination = true
+
+  # Uncomment this line to delete the data disks automatically when deleting the VM
+  # delete_data_disks_on_termination = true
+
+  storage_image_reference {
+    publisher = "Canonical"
+    offer     = "UbuntuServer"
+    sku       = "16.04-LTS"
+    version   = "latest"
+  }
+  storage_os_disk {
+    name              = "myosdisk${count.index}"
+    caching           = "ReadWrite"
+    create_option     = "FromImage"
+    managed_disk_type = "Standard_LRS"
+  }
+  os_profile {
+    computer_name  = "hostname${count.index}"
+    admin_username = "testadmin"
+    admin_password = "Password1234!"
+  }
+  os_profile_linux_config {
+    disable_password_authentication = false
+  }
+  tags = {
+    environment = "staging"
+  }
+}
